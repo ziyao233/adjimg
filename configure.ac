@@ -29,12 +29,12 @@ AC_MSG_CHECKING([whether stable xdg-shell protocol file is present])
 xdg_shell_path="$wayland_protocols_path"/stable/xdg-shell/xdg-shell.xml
 AS_IF([test -e "$xdg_shell_path"],
       [
-      	AC_MSG_RESULT([yes])
+	AC_MSG_RESULT([yes])
 	AC_SUBST([XDG_SHELL_PATH], ["$xdg_shell_path"])
       ],
       [
         AC_MSG_RESULT([no])
-        AC_MSG_ERROR([Couldn't find xdg-shell protocol in "$xdg_shell_path"])
+	AC_MSG_ERROR([Couldn't find xdg-shell protocol in "$xdg_shell_path"])
       ])
 
 AC_CHECK_PROG([have_wayland_scanner], [wayland-scanner], [yes], [no])
