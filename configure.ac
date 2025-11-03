@@ -41,4 +41,6 @@ AC_CHECK_PROG([have_wayland_scanner], [wayland-scanner], [yes], [no])
 AS_IF([test "$have_wayland_scanner" = "no"],
       [AC_MSG_ERROR([wayland-scanner is required])])
 
+PKG_CHECK_MODULES([XKBCOMMON], [xkbcommon])
+
 AC_OUTPUT

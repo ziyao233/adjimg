@@ -9,6 +9,8 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <xkbcommon/xkbcommon.h>
+
 #include <wayland-client.h>
 #include "xdg-shell-client-protocol.h"
 
@@ -29,9 +31,15 @@
 struct wl_compositor *gWLCompositor;
 struct wl_shm *gWLShm;
 struct xdg_wm_base *gXdgWmBase;
+struct wl_seat *gWLSeat;
+struct wl_keyboard *gWLKeyboard;
 
 struct wl_buffer *gWLBuffer;
 struct wl_surface *gWLSurface;
+
+struct xkb_context *gXkbCtx;
+struct xkb_keymap *gXkbKeymap;
+struct xkb_state *gXkbState;
 
 static void
 registry_on_global(void *data, struct wl_registry *registry, uint32_t name,
@@ -52,6 +60,13 @@ registry_on_global(void *data, struct wl_registry *registry, uint32_t name,
 		gXdgWmBase = wl_registry_bind(registry, name,
 					      &xdg_wm_base_interface, version);
 		assert_msg(gXdgWmBase, "failed to bind xdg_wm_base");
+	} else if (!strcmp(interface, wl_seat_interface.name)) {
+		/* TODO: Handle more than one seat */
+		if (gWLSeat)
+			return;
+
+		gWLSeat = wl_registry_bind(registry, name,
+					   &wl_seat_interface, version);
 	}
 }
 
@@ -85,9 +100,128 @@ static struct xdg_surface_listener xdgSurfaceListener = {
 	.configure	= xdg_surface_on_configure,
 };
 
+static void
+wl_keyboard_on_keymap(void *data, struct wl_keyboard *keyboard,
+		      uint32_t format, int32_t fd, uint32_t size)
+{
+	(void)data;
+
+	if (format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1) {
+		fputs("Unexpected keymap format, ignoring the keyboard\n",
+		      stderr);
+
+		wl_keyboard_release(keyboard);
+		wl_seat_release(gWLSeat);
+		gWLKeyboard = NULL;
+		gWLSeat = NULL;
+
+		return;
+	}
+
+	const char *keymapData;
+	keymapData = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
+	assert_msg(keymapData != MAP_FAILED, "failed to map keymap\n");
+	close(fd);
+
+	gXkbKeymap = xkb_keymap_new_from_string(gXkbCtx, keymapData,
+						XKB_KEYMAP_FORMAT_TEXT_V1,
+						XKB_KEYMAP_COMPILE_NO_FLAGS);
+	assert_msg(gXkbKeymap, "failed to parse keymap\n");
+
+	gXkbState = xkb_state_new(gXkbKeymap);
+	assert_msg(gXkbState, "failed to initialize XKB state\n");
+}
+
+static void
+wl_keyboard_on_enter(void *data, struct wl_keyboard *keyboard,
+		     uint32_t serial, struct wl_surface *surface,
+		     struct wl_array *array)
+{
+	(void)data; (void)keyboard; (void)serial; (void)surface; (void)array;
+}
+
+static void
+wl_keyboard_on_leave(void *data, struct wl_keyboard *keyboard, uint32_t serial,
+		     struct wl_surface *surface)
+{
+	(void)data; (void)keyboard; (void)serial; (void)surface;
+}
+
+static void
+wl_keyboard_on_key(void *data, struct wl_keyboard *keyboard, uint32_t serial,
+		   uint32_t time, uint32_t key, uint32_t state)
+{
+	(void)data; (void)time; (void)serial;
+
+	uint32_t xkbCode = key + 8;
+
+	if (xkb_state_key_get_one_sym(gXkbState, xkbCode) == XKB_KEY_Q)
+		exit(0);
+
+	xkb_state_update_key(gXkbState, xkbCode,
+			     state == WL_KEYBOARD_KEY_STATE_RELEASED ?
+			     	XKB_KEY_UP : XKB_KEY_DOWN);
+}
+
+static void
+wl_keyboard_on_modifiers(void *data, struct wl_keyboard *keyboard,
+			 uint32_t serial,
+			 uint32_t mods_depressed,
+			 uint32_t mods_latched,
+			 uint32_t mods_locked,
+			 uint32_t group)
+{
+	(void)data; (void)serial;
+
+	xkb_state_update_mask(gXkbState, mods_depressed, mods_latched,
+			      mods_locked, group, group, group);
+}
+
+static void
+wl_keyboard_on_repeat_info(void *data, struct wl_keyboard *keyboard,
+			   int32_t rate, int32_t delay)
+{
+	(void)data; (void)keyboard; (void)rate; (void)delay;
+}
+
+static struct wl_keyboard_listener wlKeyboardListener = {
+	.keymap		= wl_keyboard_on_keymap,
+	.enter		= wl_keyboard_on_enter,
+	.leave		= wl_keyboard_on_leave,
+	.key		= wl_keyboard_on_key,
+	.modifiers	= wl_keyboard_on_modifiers,
+	.repeat_info	= wl_keyboard_on_repeat_info,
+};
+
+static void
+wl_seat_on_capabilities(void *data, struct wl_seat *seat, uint32_t capabilities)
+{
+	(void)data;
+
+	if (capabilities & WL_SEAT_CAPABILITY_KEYBOARD) {
+		gWLKeyboard = wl_seat_get_keyboard(seat);
+		wl_keyboard_add_listener(gWLKeyboard, &wlKeyboardListener,
+					 NULL);
+	}
+}
+
+static void
+wl_seat_on_name(void *data, struct wl_seat *seat, const char *name)
+{
+	(void)data; (void)seat; (void)name;
+}
+
+static struct wl_seat_listener wlSeatListener = {
+	.capabilities	= wl_seat_on_capabilities,
+	.name		= wl_seat_on_name,
+};
+
 int
 main(int argc, const char *argv[])
 {
+	gXkbCtx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+	assert_msg(gXkbCtx, "failed to create XKB context\n");
+
 	struct wl_display *display = wl_display_connect(NULL);
 	assert_msg(display, "failed to open wayland display\n");
 
@@ -142,6 +276,13 @@ main(int argc, const char *argv[])
 	assert_msg(toplevel, "failed to create xdg_toplevel\n");
 
 	xdg_toplevel_set_title(toplevel, "adjimg");
+
+	if (gWLSeat) {
+		wl_seat_add_listener(gWLSeat, &wlSeatListener, NULL);
+		assert_msg(gWLSeat, "failed to listen wl_seat\n");
+	} else {
+		fputs("No seat found\n", stderr);
+	}
 
 	wl_surface_commit(gWLSurface);
 
