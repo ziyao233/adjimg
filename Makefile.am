@@ -4,6 +4,8 @@ adjimg_CFLAGS=$(WAYLAND_CLIENT_CFLAGS) $(WAYAND_PROTOCOLS_CFLAGS) \
 	      $(XKBCOMMON_CFLAGS)
 adjimg_LDFLAGS=$(WAYLAND_CLIENT_LIBS) $(XKBCOMMON_LIBS)
 
+adjimg.c: xdg-shell-client-protocol.h
+
 xdg-shell-protocol.c: @XDG_SHELL_PATH@
 	wayland-scanner private-code < $< > $@
 
