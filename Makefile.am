@@ -1,7 +1,11 @@
-bin_PROGRAMS=adjimg
-adjimg_SOURCES=adjimg.c xdg-shell-protocol.c xdg-shell-client-protocol.h
-adjimg_CFLAGS=$(WAYLAND_CLIENT_CFLAGS) $(WAYAND_PROTOCOLS_CFLAGS) \
-	      $(XKBCOMMON_CFLAGS)
+bin_PROGRAMS		= adjimg
+adjimg_SOURCES		= adjimg.c
+BUILT_SOURCES		= xdg-shell-protocol.c xdg-shell-client-protocol.h
+nodist_adjimg_SOURCES	= $(BUILT_SOURCES)
+DISTCLEANFILES		= $(BUILT_SOURCES)
+
+adjimg_CFLAGS	= $(WAYLAND_CLIENT_CFLAGS) $(WAYAND_PROTOCOLS_CFLAGS) \
+		  $(XKBCOMMON_CFLAGS)
 adjimg_LDFLAGS=$(WAYLAND_CLIENT_LIBS) $(XKBCOMMON_LIBS)
 
 xdg-shell-protocol.c: @XDG_SHELL_PATH@
